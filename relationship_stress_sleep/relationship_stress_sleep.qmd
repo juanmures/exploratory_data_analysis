@@ -1,0 +1,407 @@
+---
+title: Relación del nivel de estrés con las horas de sueño y la influencia de las vacaciones
+description: Distribuciones, Intervalos de confianza, Regresión y Contrastes de hipótesis
+format: 
+    html:
+        code-fold: TRUE
+        fig-height: 5
+        fig-width: 7
+        number-sections: TRUE
+        theme: materia
+        toc: TRUE
+        toc-depth: 2
+        df-print: kable
+editor: visual
+---
+
+## Definición de los datos
+
+El archivo **estres.rds** contiene el estudio sobre los niveles de estrés y el promedio de horas de sueño en una muestra de 300 personas.
+
+| Característica                                        | Variable |
+|:------------------------------------------------------|:--------:|
+| Indicador de estrés antes de las vacacione            |    ST    |
+| Horas de sueño promedio de una persona durante el año |  Sleep   |
+| Indicador de estrés después de las vacaciones         |   STA    |
+
+: Conjunto de datos {.light .hover}
+
+Los niveles de estrés han sido tomados a un grupo de personas en diferentes momentos en el tiempo. Las observaciones de estrés antes de las vacaciones fueron recopiladas en Febrero, y las observaciones de estrés después de vacaciones fueron obtenidas en Septiembre. Ambas variables de estrés toman valores de 0 a 100, donde 0 es interpretado como estrés nulo y 100 es estrés máximo.
+
+## Estudio de las distribuciones de las variables
+
+```{r}
+#| label: Instalar packages nuevos
+#| include: FALSE 
+
+package <- c("tidyverse", "corrplot", "psych", "EnvStats", "car", "rstatix")
+new_package <- package[!(package %in% installed.packages()[, "Package"])]
+if(length(new_package)) install.packages(new_package)
+```
+
+```{r}
+#| label: Cargar packages
+#| include: FALSE
+#| message: FALSE
+
+invisible(lapply(package, library, character.only = TRUE))
+```
+
+### Estructura de los datos.
+
+Visualización del tipo de dato y las primeras lineas.
+
+```{r}
+#| label: Importar datos
+#| warning: FALSE
+#| message: FALSE
+#| tbl-cap: Niveles de estrés y horas de sueño
+
+estres_origin <- read_rds("data/estres.rds")
+glimpse(estres_origin)
+head(estres_origin)
+```
+
+### Estadísticos descriptivos de las variables.
+
+```{r}
+#| label: Estadisticos descriptivos
+#| warning: FALSE
+#| message: FALSE
+#| #| tbl-cap: Estadísticos descriptivos
+
+names(estres_origin) <- tolower(names(estres_origin))
+describe(estres_origin, quant = c(0.25, 0.75))
+```
+
+Los estadísticos descriptivos muestran unas variables cuyas distribuciones son similares a una distribución normal.
+
+```{r}
+#| label: QQ plot
+#| warning: FALSE
+#| message: FALSE
+
+estres_distribution <- estres_origin |>
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+
+ggplot(estres_distribution, aes(sample = value, color = variable)) +
+    stat_qq() +
+    stat_qq_line() +
+    scale_color_manual(values = c("#ffb703","#219ebc", "#fb8500")) +
+    labs(x = "Theorical Quantiles", 
+        y = "Sample Quantiles", 
+        title = "Normal Q-Q Plot") + 
+    theme_light() +
+    theme(plot.title = element_text(hjust = 0.5))
+```
+
+El diagrama cuantil-cuantil superior visualiza la correlación entre las diferentes variables de la muestra y una distribución normal. Comprobamos como los datos se ajustan a una teórica distribución normal, sin embargo comienzan a dispersarse en sus extremos.
+
+Por último, comprobamos si las diferentes variables siguen una distribución normal mediante el Test de Shapiro-Wilk. En esta prueba la hipótesis nula es que la muestra proviene de una distribución normal.
+
+```{r}
+#| label: Contraste normalidad variables
+#| warning: FALSE
+#| message: FALSE
+#| tbl-cap: Resultados del Test de Shapiro-Wilk
+
+estres_origin |>
+    shapiro_test(sleep, st, sta)
+```
+
+Todos los valores $p$ \> 0.05 implica que las distribuciones de los datos no difiere significativamente de la distribución normal. En otras palabras, asumimos la normalidad en las diferentes variables.
+
+## Valores atípicos en las variables de estudio
+
+### Indentificación de valores atípicos leves mediante diagrama de caja a 1.5 veces el rango intercuartílico.
+
+```{r}
+#| label: Box plot 1.5 IQR
+#| warning: FALSE
+#| message: FALSE
+
+boxplot_estres <- \(coef = 1.5) {
+    ggplot(estres_distribution, aes(x = variable, y = value)) +
+        stat_boxplot(geom = "errorbar", coef = coef, width = 0.2) +
+        geom_boxplot(fill = c("#ffb703","#219ebc", "#fb8500") , outlier.color = "red") +
+        stat_summary(fun = "mean", geom = "point", shape = 8, size = 2, color = "white") + 
+        labs(x = "", y = "Valores", title = "Distribucines de las variables") + 
+        theme_light() +
+        theme(plot.title = element_text(hjust = 0.5),
+              axis.text.x=element_text(size = 10))
+}
+
+boxplot_estres()
+```
+
+Basandonos en la representación gráfica las 3 variables son prácticamente simétricas:
+
+1.  Medias y medianas son similares.
+2.  Medianas situadas aproximadamente a la mitad del rango intercuartílico.
+
+En referencia a los atípicos:
+
+-   Horas de sueño tiene 2 atípicos.
+-   Estrés antes de las vacaciones tiene 2 atípicos.
+-   Estrés después de las vacaciones tiene 1 atípico.
+
+### Indentificación de valores atípicos extremos mediante diagrama de caja a 3 veces el rango intercuartílico
+
+```{r}
+#| label: Box plot 3 IQR
+#| warning: FALSE
+#| message: FALSE
+
+boxplot_estres(coef = 3)
+```
+
+Los valores identificados anteriormente como atípicos son plausiblemente valores extremos, como evidenciamos al aumentar a $\pm$ 3 veces el rango intercuartílico para la detección de estos. Sin embargo, la observación con valor negativo de la variable estrés antes de las vacaciones es un error. El indicador de estrés está definido únicamente para valores de 0 a 100.
+
+```{r}
+#| label: Valores atipicos
+#| warning: FALSE
+#| message: FALSE
+
+(outlier <- lapply(estres_origin, function(var) boxplot.stats(var)$out))
+```
+
+### Identificación de valores atípicos mediante el Test de Rosner
+
+```{r}
+#| label: Confirmacion atipicos
+#| warning: FALSE
+#| message: FALSE
+
+(outlier_test <- map(estres_origin, rosnerTest, k = 2) |>
+    map("all.stats"))
+```
+
+Los resultados de la prueba de Rosner muestran que no existen valores atípicos, por tanto son valores extremos de la distribución. Además, los índices de los valores extremos de estrés antes de las vacaciones y horas de sueño coinciden, dichos valores pertenecen a 2 observaciones.
+
+Visualizamos las observaciones afectadas por los valores extremos.
+
+```{r}
+#| label: Indices valores atipicos
+#| warning: FALSE
+#| message: FALSE
+#| tbl-cap: Observaciones extremas
+
+index <- integer()
+
+for (i in seq(length(outlier))) {
+  index <- c(index, match(outlier[[i]], estres_origin[[as.character(names(outlier[i]))]]))
+}
+
+estres_origin[unique(index), ]
+```
+
+Eliminamos la observación 110 que contiene el error identificado anteriormente en el estrés antes de las vacaciones y la muestra queda configurada por 299 observaciones.
+
+```{r}
+#| label: Eliminacion error
+#| warning: FALSE
+#| message: FALSE
+#| tbl-cap: Estadísticos sin observación erronea
+
+estres <- estres_origin[!estres_origin$st < 0, ]
+(estadistico <- describe(estres))
+```
+
+Tras la eliminación de la observación erronea los estadísticos descriptivos no han sufrido variaciones significativas.
+
+## Media de estrés de la población
+
+```{r}
+#| label: Intervalo media poblacional
+#| warning: FALSE
+#| message: FALSE
+
+(media_poblacional <- t.test(estres$st, conf.level = 0.95)$conf.int)
+```
+
+> La media poblacional del nivel de estrés antes de las vacaciones está entre `r round(media_poblacional[1], 4)` y `r round(media_poblacional[2], 4)` con un nivel de confianza del 95% (IC~95%~ \[`r round(media_poblacional[1], 4)`, `r round(media_poblacional[2], 4)`\]).
+
+## Relación entre el estrés y las horas de sueño
+
+El siguiente diagrama de dispersión muestra los valores de estrés antes de las vacaciones dadas unas horas de sueño.
+
+```{r}
+#| label: Scatter plot st-sleep
+#| warning: FALSE
+#| message: FALSE
+
+ggplot(estres, aes(x = sleep, y = st)) + 
+    geom_point() +
+    labs(x = "Horas de sueño", 
+         y = "Nivel de estrés antes de vacaciones", 
+         title = "Relación entre el estrés y las horas de sueño") + 
+    theme_light() +
+    theme(plot.title = element_text(hjust = 0.5))
+```
+
+Comprobamos visualmente la existencia de una correlación inversa entre ambas variables.
+
+Calculamos el coeficiente de correlación entre estas dos variables.
+
+```{r}
+#| label: Correlacion
+#| warning: FALSE
+#| message: FALSE
+
+cor(estres$sleep, estres$st)
+```
+
+> Existe una asociación inversa fuerte entre las horas de sueño y el nivel de estrés. Una disminución en el promedio de horas de sueño tiende a que el nivel de estrés exprimente un aumento. No obstante, debemos tener en cuenta que toda la variabilidad del nivel de estrés no es explicada por las horas de sueño por lo que asumimos que existen más variables explicativas.
+
+## Predicción del estrés a partir de las horas de sueño de una persona
+
+### Modelo de regresión lineal.
+
+```{r}
+#| label: Regresion lineal
+#| warning: FALSE
+#| message: FALSE
+
+estres_model <- lm(st ~ sleep, data = estres)
+summary(estres_model)
+```
+
+Visualizamos en el siguiente diagrama de dispersión como se ajusta la regresión lineal a los valores de estrés antes de las vacaciones dadas unas horas de sueño.
+
+```{r}
+#| label: Visualizacion regresion lineal
+#| warning: FALSE
+#| message: FALSE
+
+ggplot(estres, aes(x = sleep, y = st)) + 
+    geom_point() +
+    geom_smooth(method = "lm") +
+    labs(x = "Horas de sueño", 
+         y = "Nivel de estrés antes de vacaciones", 
+         title = "Relación entre el estrés y las horas de sueño") + 
+    theme_light() +
+    theme(plot.title = element_text(hjust = 0.5))
+```
+
+A partir de los coeficientes del modelo lineal calculado, estimamos el nivel de estrés para una persona que duerme un promedio de 6 horas.
+
+```{r}
+#| label: Estimacion 6 horas
+#| warning: FALSE
+#| message: FALSE
+
+horas_sleep <- 6
+predicted_estres <- estres_model$coefficients[[1]] + estres_model$coefficients[[2]] * horas_sleep
+data.frame(horas_sleep, predicted_estres) 
+```
+
+A continuación predecimos los valores de estrés dadas las horas de sueño comprendidas entre 5 y 15. Mostrando el resultado en forma de tabla, donde cada fila contiene el valor de las horas de sueño y el estrés asociado.
+
+```{r}
+#| label: Prediccion niveles estres
+#| warning: FALSE
+#| message: FALSE
+#| tbl-cap: Tabla de predicciones
+
+horas_sleep <- data.frame(sleep = c(5:14))
+predicted_estres <- data.frame(predicted_estres = predict(estres_model, horas_sleep))
+
+cbind(horas_sleep, predicted_estres)
+```
+
+### Error Cuadrático Medio
+
+El Error Cuadrático Medio (ECM o MSE) es calculado a partir de los residuos de la regresión lineal al cuadrado. Los residuos son la diferencia entre los valores predichos por la regresión lineal y los valores reales de la variable. Si el estimador es insesgado la raíz cuadrada del ECM produce el error de la raíz cuadrada de la media (RMSE), conocido como la desviación estándar.
+
+Aplicamos la formula del estimador de la varianza cuando esta es desconocida.
+
+```{r}
+#| label: Error cuadratico medio
+#| warning: FALSE
+#| message: FALSE
+
+(ecm <- sum(residuals(estres_model)**2) / (nrow(estres) - 2))
+```
+
+> El *Error Cuadrático Medio*, o estimador de la varianza poblacional, mide la precisión en la predicción de la regresión lineal. Por tanto, cuanto menor sea ECM (mejor se ajusta a los valores reales) mayor precisión tendrá la regresión lineal al predecir los niveles de estrés en función del promedio de horas de sueño. Si realizamos la raíz cuadrada de ECM obtenemos el estimador de la desvianción estándar poblacional `r round(sqrt(ecm), 4)`.
+
+## Influencia de las vacaciones en el estres
+
+Manipulamos el conjunto de datos agregando la variable categórica holiday (0 = before y 1 = after). Esta toma los valores: 0 antes de las vacaciones y 1 después de las vacaciones.
+
+```{r}
+#| label: Agregar variable holiday
+#| warning: FALSE
+#| message: FALSE
+
+estres_vacaciones <- estres |> 
+    pivot_longer(cols = c("st", "sta"), names_to = "holiday", values_to = "stress") |> 
+    mutate_at(vars(holiday), dplyr::recode, st = 0, sta = 1)
+```
+
+### Homogeneidad de varianzas
+
+Las observaciones de estrés tanto antes como depués de las vacaciones han sido generadas a partir de los mismos individuos bajo distintas condiciones, esto nos indica que la muestra es pareada. Dicho con otras palabras, los dos grupos de observaciones son dependientes.
+
+A continuación, evaluamos la homogeneidad mediante el Test de Levene, cuya hipótesis nula es la igualdad de varianza entre los diferentes grupos o poblaciones.
+
+```{r}
+#| label: Homogeneidad varianzas
+#| warning: FALSE
+#| message: FALSE
+
+print(leveneTest(stress ~ as.factor(holiday), data = estres_vacaciones))
+```
+
+Según el contraste anterior, no tenemos suficientes evidencias para rechazar la hipótesis nula. Por tanto, los datos cumplen el supuesto de igualdad de varianzas.
+
+### Establecimiento de la hipótesis
+
+Hipótesis definida: las medias de los niveles de estrés antes y después de las vacaciones son diferentes.
+
+El contraste planteado es el siguiente, la hipótesis nula es la igualdad de medias (las vacaciones no influyen en los niveles de estrés) y la hipótesis alternativa es la desigualdad de medias (las vacaciones influyen en los niveles de estrés)
+
+-   Hipotesis nula (H~0~): $\mu$~st~ $= \mu$~sta~
+-   Hipotesis alternativa (H~a~): $\mu$~st~ $\ne \mu$~sta~
+
+```{r}
+#| label: Contraste igualdad medias 95
+#| warning: FALSE
+#| message: FALSE
+
+(igualdad_a5 <- t.test(stress ~ holiday, 
+                       alternative = "two.sided", 
+                       paired = TRUE, 
+                       var.equal = TRUE, 
+                       conf.level = 0.95, 
+                       data = estres_vacaciones))
+```
+
+> No existe una diferencia estadísticamente significativa entre las medias de las dos variables teniendo en cuenta el valor $t$ y $p$ a un nivel de significación del 5%. La región de no rechazo de $t$ para $\alpha$ = 0.05 esta en el intervalo \[`r round(-qt(1 - (0.05) / 2, df = nrow(estres) - 1), 4)`, `r round(qt(1 - (0.05) / 2, df = nrow(estres) - 1), 4)`\]. El estadítico de contraste $t$ = `r round(igualdad_a5$statistic, 4)` está dentro de dicho intervalo. Además el valor $p$ = `r round(igualdad_a5$p.value, 4)` es superior al nivel de significación.
+
+> La verdadera media poblacional de la diferencia entre las dos varaiables se encuentra en el IC~95%~ \[`r round(igualdad_a5$conf.int[1], 4)`, `r round(igualdad_a5$conf.int[2], 4)`\].
+
+### Reducción del nivel de confianza al 80% en el contraste de igualdad de medias
+
+```{r}
+#| label: Contraste igualdad medias 80
+#| warning: FALSE
+#| message: FALSE
+
+(igualdad_a20 <- t.test(stress ~ holiday, 
+                        alternative = "two.sided", 
+                        paired = TRUE, 
+                        var.equal = TRUE,
+                        conf.level = 0.80, 
+                        data = estres_vacaciones))
+```
+
+> Existe una diferencia estadísticamente significativa entre las medias de las dos variables teniendo en cuenta el valor $t$ y $p$ a un nivel de significación del 20%. La región de no rechazo de $t$ para $\alpha$ = 0.20 esta en el intervalo `r round(-qt(1 - (0.20) / 2, df = nrow(estres) - 1), 4)`, `r round(qt(1 - (0.20) / 2, df = nrow(estres) - 1), 4)`. El estadítico de contraste $t$ = `r round(igualdad_a20$statistic, 4)` está dentro de dicho intervalo. Además el valor $p$ = `r round(igualdad_a20$p.value, 4)` es superior al nivel de significación.
+
+### Comparación de los resultados del contraste al modificar el nivel de confianza
+
+> Modificando el nivel de significación del contraste tenemos que tanto los estadísticos, grados de libertad y el valor p son iguales para ambos niveles de significación. A un nivel de significación $\alpha$ = 0.05 todos los estadísticos indican que no podemos rechazar la hipótesis nula; mientras que con un $\alpha$ = 0.20 rechazamos la hipótesis nula.
+
+> La amplitud del rango del intervalo puede reducirse sin aumentar el nivel de significación mediante un aumento del tamaño de la muestra o estimando una desviación estándar a partir de los mínimos cuadrados.
+
+> En conclusión, un aumento del nivel de significación reduce el rango del intervalo al que pertenece la diferencia de medias. A cambio de incrementar el riesgo de incurrir en un error de tipo I. Este error, también conocido como falso positivo, es cometido cuando rechazamos la hipótesis nula siendo esta cierta.

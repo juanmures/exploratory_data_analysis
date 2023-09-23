@@ -1,0 +1,288 @@
+---
+title: Medical Examination
+format: 
+    html:
+        code-fold: TRUE
+        fig-height: 5
+        fig-width: 7
+        number-sections: TRUE
+        theme: materia
+        toc: TRUE
+        toc-depth: 2
+        df-print: kable
+editor: visual
+---
+
+## Objective
+
+This research endeavors to investigate the interconnections among cardiac disease, physiological measurements, blood markers, and lifestyle preferences. In the dataset, each row corresponds to individual patients, while the columns encompass pertinent information encompassing physiological measurements, outcomes of diverse blood tests, and lifestyle preferences.
+
+## Medical examination sample
+
+File name: medical_examination.rds
+
+```{=html}
+<table>
+	<thead>
+		<tr>
+			<th align="center">Feature</th>
+			<th align="center">Variable Type</th>
+			<th align="center">Variable</th>
+			<th align="center">Value Type</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td align="center">Age</td>
+			<td align="center">Objective Feature</td>
+			<td align="center"><code>age</code></td>
+			<td align="center">int (days)</td>
+		</tr>
+		<tr>
+			<td align="center">Height</td>
+			<td align="center">Objective Feature</td>
+			<td align="center"><code>height</code></td>
+			<td align="center">int (cm)</td>
+		</tr>
+		<tr>
+			<td align="center">Weight</td>
+			<td align="center">Objective Feature</td>
+			<td align="center"><code>weight</code></td>
+			<td align="center">float (kg)</td>
+		</tr>
+		<tr>
+			<td align="center">Gender</td>
+			<td align="center">Objective Feature</td>
+			<td align="center"><code>gender</code></td>
+			<td align="center">categorical code</td>
+		</tr>
+		<tr>
+			<td align="center">Systolic blood pressure</td>
+			<td align="center">Examination Feature</td>
+			<td align="center"><code>ap_hi</code></td>
+			<td align="center">int</td>
+		</tr>
+		<tr>
+			<td align="center">Diastolic blood pressure</td>
+			<td align="center">Examination Feature</td>
+			<td align="center"><code>ap_lo</code></td>
+			<td align="center">int</td>
+		</tr>
+		<tr>
+			<td align="center">Cholesterol</td>
+			<td align="center">Examination Feature</td>
+			<td align="center"><code>cholesterol</code></td>
+			<td align="center">1: normal, 2: above normal, 3: well above normal</td>
+		</tr>
+		<tr>
+			<td align="center">Glucose</td>
+			<td align="center">Examination Feature</td>
+			<td align="center"><code>glucose</code></td>
+			<td align="center">1: normal, 2: above normal, 3: well above normal</td>
+		</tr>
+		<tr>
+			<td align="center">Smoking</td>
+			<td align="center">Subjective Feature</td>
+			<td align="center"><code>smoke</code></td>
+			<td align="center">binary</td>
+		</tr>
+		<tr>
+			<td align="center">Alcohol intake</td>
+			<td align="center">Subjective Feature</td>
+			<td align="center"><code>alcohol</code></td>
+			<td align="center">binary</td>
+		</tr>
+		<tr>
+			<td align="center">Physical activity</td>
+			<td align="center">Subjective Feature</td>
+			<td align="center"><code>active</code></td>
+			<td align="center">binary</td>
+		</tr>
+		<tr>
+			<td align="center">Presence or absence of cardiovascular disease</td>
+			<td align="center">Target Variable</td>
+			<td align="center"><code>cardio</code></td>
+			<td align="center">binary</td>
+		</tr>
+	</tbody>
+</table>
+```
+
+```{r}
+#| label: Install new packages
+#| include: FALSE 
+
+package <- c("tidyverse", "corrplot", "psych", "rstatix")
+new_package <- package[!(package %in% installed.packages()[, "Package"])]
+if(length(new_package)) install.packages(new_package)
+```
+
+```{r}
+#| label: Load packages
+#| include: FALSE
+
+invisible(lapply(package, library, character.only = TRUE))
+```
+
+### Data structure
+
+```{r}
+#| label: Import data
+#| warning: FALSE
+#| message: FALSE
+#| tbl-cap: Medical examination data
+
+medical_exam_origin <- read_rds("data/medical_examination.rds")
+glimpse(medical_exam_origin)
+head(medical_exam_origin)
+```
+
+### Descriptive statistics
+
+```{r}
+#| label: Data description
+#| warning: FALSE
+#| message: FALSE
+
+describe(medical_exam_origin, quant = c(0.25, 0.75))
+```
+
+## Missing data
+
+```{r}
+#| label: Missing data
+#| warning: FALSE
+#| message: FALSE
+
+ifelse(identical(which(is.na(medical_exam_origin)), integer(0)), 
+       "No missing data", 
+       medical_exam_origin)
+```
+
+## Exclude outliers and errors
+
+The following patient segments represent error and outlier values:
+
+1.  Diastolic pressure is higher than systolic.
+
+2.  Height is less than the 2.5th percentile and more than the 97.5th percentile.
+
+3.  Weight is less than the 2.5th percentile and more than the 97.5th percentile.
+
+```{r}
+#| label: Exclude outliers
+#| warning: FALSE
+#| message: FALSE
+
+medical_exam <- medical_exam_origin |> 
+    filter(ap_lo <= ap_hi, 
+           height >= quantile(height, probs = 0.025),
+           height <= quantile(height, probs = 0.975),
+           weight >= quantile(weight, probs = 0.025),
+           weight <= quantile(weight, probs = 0.975))
+```
+
+## Body Mass Index
+
+The *Body Mass Index (BMI)* serves as an indicator of body fat percentage in adults and is calculated based on an individual's height and weight. A BMI value of 25.0 or greater falls within the overweight classification.
+
+```{r}
+#| label: Add columns bmi and overweight
+#| warning: FALSE
+#| message: FALSE
+
+medical_exam <- medical_exam |> 
+    mutate(bmi = weight / ((height / 100)**2))
+
+medical_exam["overweight"] <- ifelse(medical_exam[["bmi"]] > 25, 1, 0) 
+```
+
+## Encoding Cholesterol and Glucose
+
+One hot encode Cholesterol and Glucose by taking 0 whether Cholesterol and Glucose variables are normal, in other cases they will take value 1.
+
+```{r}
+#| label: Encode variables
+#| warning: FALSE
+#| message: FALSE
+
+enconde_var <- c("cholesterol_above", "glucose_above")
+medical_exam[enconde_var] <- ifelse(medical_exam[c("cholesterol", "glucose")] == 1, 0, 1)
+```
+
+## Relationship between variables by pearson correlation coefficient
+
+```{r}
+#| label: Correlation matrix
+#| warning: FALSE
+#| message: FALSE
+
+correlation_matrix <- cor(medical_exam)
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+corrplot(correlation_matrix, method = "color", col = col(200), type = "lower", 
+         order = "hclust", addCoef.col = "black", tl.col = "black", diag = FALSE, 
+         tl.cex = 0.75, number.cex = 0.5)
+```
+
+The correlation matrix reveals that the most pronounced positive correlations exist between the original variables and their encoded counterparts, or *BMI* and *Weight*, as *BMI* is derived from the variables of *Weight* and *Height*.
+
+Concerning the target variable, *Cardio* demonstrates a moderate correlation with *Diastolic blood pressure*, with the strongest positive correlation. Additionally, *Cardio* exhibits weak correlations with the *Age* and *Cholesterol* variables.
+
+### Significance of blood markers and lifestyle variables
+
+Given the correlation coefficients and the sample size, it is possible to deduce whether $\rho$ (in this case is equal to $\phi$) exhibits a statistically significant deviation from the null hypothesis of 0 correlation, all the while upholding a significance level of 1%.
+
+-   Null hypothesis (H~0~): $\rho = 0$
+-   Alternative hypothesis (H~a~): $\rho \ne 0$
+
+```{r}
+#| label: Correlation significance
+#| warning: FALSE
+#| message: FALSE
+
+blood_marker_lifestyle <- medical_exam |> 
+    select(c("cardio", "cholesterol_above", "glucose_above", "smoke", 
+             "alcohol", "active", "overweight"))
+
+(cor_significance <- blood_marker_lifestyle |>
+    cor_test(cardio, conf.level = 0.99) |>
+    arrange(desc(cor)))
+```
+
+The null hypothesis has been rejected for all of the blood markers and lifestyle variables. Therefore *Cholesterol Above* and *Overweight* variables (derived from the blood markers and lifestyle variables) and *Cardio* are weakly correlated and the relationship is statistically significant. This suggests that as *Cholesterol Above* or *Overweight* variables increase, there is a tendency for *Cardio* to exhibit a corresponding increase. However, it is imperative to acknowledge that these two factors are merely a subset of several determinants influencing cardiovascular disease.
+
+In contrast, the correlation coefficient for the remaining variables closely approximates 0, signifying the absence of a linear relationship among them.
+
+## Blood markers and lifestyle in cardiovascular disease
+
+```{r}
+#| label: Cardiovascular disease graph
+#| warning: FALSE
+#| message: FALSE
+
+cardio_disease <- blood_marker_lifestyle |> 
+    pivot_longer(cols = -cardio, names_to = "variable", values_to = "cases") |> 
+    group_by(cardio, variable, cases) |> 
+    count(name = "patient")
+
+cardio_values <- c("0" = "Absence cardiovascular disease", 
+                   "1" = "Presence cardiovascular disease")
+
+ggplot(cardio_disease, aes(x = variable, y = patient, fill = factor(cases))) + 
+    geom_bar(position = "dodge", stat = "identity") + 
+    facet_wrap(vars(cardio), labeller = as_labeller(cardio_values)) + 
+    scale_fill_manual(labels = c("No", "Yes"), 
+                      values = c("#2a9d8f", "#e76f51")) +
+    coord_flip() +
+    labs(x = "Blood markers and lifestyle", 
+         y = "No. of Patients", 
+         fill = "Cases", 
+         title = "Cardiovascular disease") + 
+    theme_light() +
+    theme(plot.title = element_text(hjust = 0.5),
+          strip.text = element_text(size = 10))
+```
+
+Cardiovascular disease is observed in a higher proportion of patients who are overweight and/or exhibit elevated cholesterol levels.
